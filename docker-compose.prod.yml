@@ -3,8 +3,9 @@
 #
 # Отличия от локальной конфигурации:
 #   * пароль БД обязателен, дефолта нет;
-#   * наружу смотрит только Caddy (80/443) — api и db портов не публикуют;
-#   * Caddy сам выпускает и продлевает TLS-сертификат Let's Encrypt для ked-ai.site.
+#   * db портов не публикует — до неё ходит только api по внутренней сети compose;
+#   * api слушает только 127.0.0.1:8000 — наружу смотрит системный nginx (см. deploy/nginx.conf),
+#     он же занимается TLS через certbot.
 services:
   db:
     environment:
@@ -17,24 +18,5 @@ services:
       ENVIRONMENT: production
       DEBUG: "false"
       CORS_ORIGINS: ${CORS_ORIGINS:-https://ked-ai.site}
-    ports: !reset []
-
-  caddy:
-    image: caddy:2-alpine
-    depends_on:
-      - api
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      DOMAIN: ${DOMAIN:-ked-ai.site}
-      ACME_EMAIL: ${ACME_EMAIL:-}
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:
+      - "127.0.0.1:8000:8000"

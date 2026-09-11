@@ -145,26 +145,30 @@ curl -X POST localhost:8000/api/v1/tickets/<id>/feedback -H 'Content-Type: appli
 ```bash
 # на сервере
 cp .env.example .env
-# обязательно задать длинный случайный POSTGRES_PASSWORD и ACME_EMAIL
+# обязательно задать длинный случайный POSTGRES_PASSWORD
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 Что делает продовый оверлей:
 
-- наружу смотрит только **Caddy** (порты 80/443); `api` и `db` портов не публикуют
-  вообще — до БД ходит исключительно `api` по внутренней сети compose;
-- Caddy сам выпускает и продлевает TLS-сертификат Let's Encrypt для `ked-ai.site`;
+- `api` слушает только `127.0.0.1:8000` — наружу смотрит системный **nginx**
+  (порты 80/443); `db` порт не публикует вообще — до неё ходит исключительно `api`
+  по внутренней сети compose;
+- TLS-сертификат Let's Encrypt выпускает и продлевает **certbot**, запущенный на хосте
+  (не в docker), через `certbot --nginx`;
 - `POSTGRES_PASSWORD` обязателен — без него compose не стартует, дефолта в проде нет;
 - `DEBUG=false`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://ked-ai.site`.
 
-Маршрутизация на домене (см. [deploy/Caddyfile](deploy/Caddyfile)): `/api/*`, `/docs`,
-`/openapi.json`, `/health*` проксируются в backend, корень зарезервирован под фронтенд.
+Маршрутизация на домене (см. [deploy/nginx.conf](deploy/nginx.conf)): `/backend/api/v1/*`
+проксируется в backend (`127.0.0.1:8000/api/v1/*`), `/ml` зарезервирован под ML-сервис
+(пока отвечает заглушкой 503), корень — под фронтенд.
 
-**Предусловия на сервере:** A-запись `ked-ai.site` → IP сервера, открытые порты 80 и 443
+**Предусловия на сервере:** A-запись `ked-ai.site` → IP сервера, установлены `nginx` и
+`certbot` (`apt install nginx certbot python3-certbot-nginx`), открытые порты 80 и 443
 (без 80 не пройдёт HTTP-01 проверка Let's Encrypt).
 
 **Чего пока нет:** аутентификации API, бэкапов БД, ограничения скорости запросов.
-Swagger на проде открыт — если это нежелательно, закрыть `/docs` в Caddyfile.
+`/docs` наружу не проксируется в `deploy/nginx.conf` — Swagger на проде недоступен снаружи.
 
 ## Структура проекта
 
@@ -178,7 +182,7 @@ app/
   services/tickets.py  бизнес-логика (роутеры тонкие)
   api/v1/              роутеры: tickets, health
 migrations/            Alembic
-deploy/Caddyfile       reverse proxy + TLS для прода
+deploy/nginx.conf      reverse proxy для прода (TLS через certbot)
 tests/                 pytest
 ```
 
