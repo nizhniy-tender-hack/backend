@@ -42,7 +42,7 @@ class TicketStatusUpdate(BaseModel):
     actor: ActorType = ActorType.SYSTEM
     comment: str | None = None
     resolution: str | None = Field(
-        default=None, description="Итог обработки, имеет смысл при переводе в completed"
+        default=None, description="Итог обработки, имеет смысл при переводе в closed"
     )
 
 
@@ -56,6 +56,32 @@ class TicketEscalate(BaseModel):
     summary: str | None = Field(default=None, description="Саммари диалога для оператора")
     assignee: str | None = Field(default=None, max_length=128)
     comment: str | None = None
+
+
+class TicketClose(BaseModel):
+    """Закрытие обращения: перевод в терминальный статус closed."""
+
+    actor: ActorType = ActorType.USER
+    resolution: str | None = Field(default=None, description="Итог обработки обращения")
+    comment: str | None = Field(default=None, description="Комментарий к записи в истории")
+
+
+class FeedbackCreate(BaseModel):
+    """Оценка обращения пользователем после закрытия: звёзды + комментарий."""
+
+    score: int = Field(ge=1, le=5, description="Оценка от 1 до 5 звёзд")
+    comment: str | None = Field(default=None, max_length=4000)
+
+
+class FeedbackRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ticket_id: uuid.UUID
+    score: int
+    comment: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TicketEventRead(BaseModel):
@@ -89,6 +115,7 @@ class TicketRead(BaseModel):
     closed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    feedback: FeedbackRead | None = None
 
 
 class TicketDetail(TicketRead):

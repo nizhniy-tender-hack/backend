@@ -7,7 +7,7 @@ class TicketStatus(StrEnum):
     CREATED = "created"  # создана
     IN_PROGRESS = "in_progress"  # в процессе (обрабатывает ИИ-агент)
     IN_SUPPORT = "in_support"  # в работе у поддержки (эскалация на человека)
-    COMPLETED = "completed"  # завершена
+    CLOSED = "closed"  # закрыта (завершена)
 
 
 class SupportLine(StrEnum):
@@ -35,22 +35,22 @@ class ActorType(StrEnum):
     SYSTEM = "system"
 
 
-# Разрешённые переходы статусов. Завершённое обращение — терминальное состояние.
+# Разрешённые переходы статусов. Закрытое обращение — терминальное состояние.
 ALLOWED_TRANSITIONS: dict[TicketStatus, set[TicketStatus]] = {
     TicketStatus.CREATED: {
         TicketStatus.IN_PROGRESS,
         TicketStatus.IN_SUPPORT,
-        TicketStatus.COMPLETED,
+        TicketStatus.CLOSED,
     },
     TicketStatus.IN_PROGRESS: {
         TicketStatus.IN_SUPPORT,
-        TicketStatus.COMPLETED,
+        TicketStatus.CLOSED,
     },
     TicketStatus.IN_SUPPORT: {
         TicketStatus.IN_PROGRESS,
-        TicketStatus.COMPLETED,
+        TicketStatus.CLOSED,
     },
-    TicketStatus.COMPLETED: set(),
+    TicketStatus.CLOSED: set(),
 }
 
 

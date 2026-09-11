@@ -1,0 +1,40 @@
+# Продовый оверлей поверх docker-compose.yml.
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Отличия от локальной конфигурации:
+#   * пароль БД обязателен, дефолта нет;
+#   * наружу смотрит только Caddy (80/443) — api и db портов не публикуют;
+#   * Caddy сам выпускает и продлевает TLS-сертификат Let's Encrypt для ked-ai.site.
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD обязателен в проде}
+    # Убираем публикацию порта: до БД ходит только api по внутренней сети compose.
+    ports: !reset []
+
+  api:
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://ked-ai.site}
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-ked-ai.site}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

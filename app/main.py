@@ -26,10 +26,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Браузер отклоняет ответ с `Access-Control-Allow-Origin: *` и credentials одновременно,
+# поэтому credentials включаем только когда список origin-ов задан явно (прод: https://ked-ai.site).
+allow_credentials = "*" not in settings.cors_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

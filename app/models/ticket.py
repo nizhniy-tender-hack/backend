@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -65,6 +75,13 @@ class Ticket(TimestampMixin, Base):
         order_by="TicketEvent.created_at",
         lazy="selectin",
     )
+    # Одна оценка на обращение: пользователь ставит её после закрытия.
+    feedback: Mapped["TicketFeedback | None"] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="selectin",
+    )
 
 
 class TicketEvent(Base):
@@ -95,3 +112,23 @@ class TicketEvent(Base):
     )
 
     ticket: Mapped[Ticket] = relationship(back_populates="events")
+
+
+class TicketFeedback(TimestampMixin, Base):
+    """Оценка обращения пользователем: звёзды 1-5 и комментарий."""
+
+    __tablename__ = "ticket_feedback"
+    __table_args__ = (
+        CheckConstraint("score >= 1 AND score <= 5", name="score_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # unique: одно обращение — одна оценка, повторный POST перезаписывает её.
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tickets.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+
+    score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    ticket: Mapped[Ticket] = relationship(back_populates="feedback")

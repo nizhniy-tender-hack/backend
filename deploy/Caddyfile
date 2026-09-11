@@ -1,0 +1,23 @@
+# Caddy автоматически получает и продлевает сертификат Let's Encrypt для {$DOMAIN}.
+# Обязательное условие: A-запись ked-ai.site указывает на IP этого сервера,
+# порты 80 и 443 открыты — без 80 не пройдёт HTTP-01 проверка.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Всё API уже живёт под /api/v1, поэтому путь не переписываем.
+	# /docs и /openapi.json проксируем отдельно — они лежат вне префикса.
+	@backend path /api/* /docs /openapi.json /redoc /health*
+	reverse_proxy @backend api:8000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# Корень пока за backend не закреплён — сюда встанет фронтенд (assistant-ui).
+	handle {
+		respond "ked-ai.site: API доступно на /api/v1, документация на /docs" 200
+	}
+}

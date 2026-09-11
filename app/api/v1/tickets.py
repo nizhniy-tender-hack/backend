@@ -6,7 +6,10 @@ from fastapi import APIRouter, Query, status
 from app.api.deps import TicketServiceDep
 from app.core.enums import SupportLine, TicketStatus
 from app.schemas.ticket import (
+    FeedbackCreate,
+    FeedbackRead,
     Page,
+    TicketClose,
     TicketCreate,
     TicketDetail,
     TicketEscalate,
@@ -75,7 +78,7 @@ async def update_ticket(
 async def change_status(
     ticket_id: uuid.UUID, payload: TicketStatusUpdate, service: TicketServiceDep
 ) -> TicketRead:
-    """Недопустимый переход (например из completed) отклоняется с кодом 409."""
+    """Недопустимый переход (например из closed) отклоняется с кодом 409."""
     ticket = await service.change_status(ticket_id, payload)
     return TicketRead.model_validate(ticket)
 
@@ -91,6 +94,42 @@ async def escalate_ticket(
     """Переводит обращение в статус in_support и сохраняет саммари диалога для оператора."""
     ticket = await service.escalate(ticket_id, payload)
     return TicketRead.model_validate(ticket)
+
+
+@router.post("/{ticket_id}/close", response_model=TicketRead, summary="Закрыть обращение")
+async def close_ticket(
+    ticket_id: uuid.UUID, payload: TicketClose, service: TicketServiceDep
+) -> TicketRead:
+    """Переводит обращение в терминальный статус `closed`.
+
+    После успешного ответа фронт показывает форму оценки (звёзды 1-5 + комментарий).
+    """
+    ticket = await service.close(ticket_id, payload)
+    return TicketRead.model_validate(ticket)
+
+
+@router.post(
+    "/{ticket_id}/feedback",
+    response_model=FeedbackRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Оценить обращение (1-5 звёзд + комментарий)",
+)
+async def set_feedback(
+    ticket_id: uuid.UUID, payload: FeedbackCreate, service: TicketServiceDep
+) -> FeedbackRead:
+    """Доступно только для закрытого обращения, иначе 409. Повторный вызов перезаписывает оценку."""
+    feedback = await service.set_feedback(ticket_id, payload)
+    return FeedbackRead.model_validate(feedback)
+
+
+@router.get(
+    "/{ticket_id}/feedback",
+    response_model=FeedbackRead,
+    summary="Получить оценку обращения",
+)
+async def get_feedback(ticket_id: uuid.UUID, service: TicketServiceDep) -> FeedbackRead:
+    feedback = await service.get_feedback(ticket_id)
+    return FeedbackRead.model_validate(feedback)
 
 
 @router.get(

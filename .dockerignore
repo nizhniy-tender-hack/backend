@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+tests
+# .env не должен попадать в образ: секреты передаются через окружение контейнера
+.env
+*.sqlite3
+.DS_Store
+README.md

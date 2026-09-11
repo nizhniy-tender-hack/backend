@@ -1,7 +1,8 @@
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -19,7 +20,9 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_echo: bool = False
 
-    cors_origins: list[str] = ["*"]
+    # NoDecode: без него pydantic-settings пытается разобрать значение переменной
+    # окружения как JSON и падает на CORS_ORIGINS=* ещё до валидатора ниже.
+    cors_origins: Annotated[list[str], NoDecode] = ["*"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod

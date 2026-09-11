@@ -1,32 +1,52 @@
+# Базовая конфигурация — локальная разработка.
+# Прод: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: tender
-      POSTGRES_PASSWORD: tender
-      POSTGRES_DB: tender_hack
+      POSTGRES_USER: ${POSTGRES_USER:-tender}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tender}
+      POSTGRES_DB: ${POSTGRES_DB:-tender_hack}
+    # Только на localhost хоста: порт БД не должен торчать наружу.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tender -d tender_hack"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tender} -d ${POSTGRES_DB:-tender_hack}"]
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql+asyncpg://tender:tender@db:5432/tender_hack
-      ENVIRONMENT: docker
-      CORS_ORIGINS: "*"
+      # Хост БД — имя сервиса `db`: внутри compose-сети его резолвит встроенный DNS Docker.
+      DATABASE_URL: >-
+        postgresql+asyncpg://${POSTGRES_USER:-tender}:${POSTGRES_PASSWORD:-tender}@db:5432/${POSTGRES_DB:-tender_hack}
+      ENVIRONMENT: ${ENVIRONMENT:-docker}
+      DEBUG: ${DEBUG:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      - "127.0.0.1:8000:8000"
+    command: >-
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
 
 volumes:
   pgdata:

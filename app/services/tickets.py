@@ -5,9 +5,21 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ActorType, SupportLine, TicketStatus, is_transition_allowed
-from app.core.exceptions import InvalidStatusTransitionError, TicketNotFoundError
-from app.models.ticket import Ticket, TicketEvent
-from app.schemas.ticket import TicketCreate, TicketEscalate, TicketStatusUpdate, TicketUpdate
+from app.core.exceptions import (
+    FeedbackNotFoundError,
+    InvalidStatusTransitionError,
+    TicketNotClosedError,
+    TicketNotFoundError,
+)
+from app.models.ticket import Ticket, TicketEvent, TicketFeedback
+from app.schemas.ticket import (
+    FeedbackCreate,
+    TicketClose,
+    TicketCreate,
+    TicketEscalate,
+    TicketStatusUpdate,
+    TicketUpdate,
+)
 
 
 class TicketService:
@@ -145,6 +157,54 @@ class TicketService:
         await self.session.refresh(ticket)
         return ticket
 
+    async def close(self, ticket_id: uuid.UUID, payload: TicketClose) -> Ticket:
+        """Закрытие обращения: перевод в терминальный статус closed."""
+        ticket = await self.get(ticket_id)
+        if not is_transition_allowed(ticket.status, TicketStatus.CLOSED):
+            raise InvalidStatusTransitionError(ticket.status, TicketStatus.CLOSED)
+
+        previous = ticket.status
+        ticket.status = TicketStatus.CLOSED
+        if payload.resolution is not None:
+            ticket.resolution = payload.resolution
+        self._apply_status_side_effects(ticket, TicketStatus.CLOSED)
+
+        if previous != TicketStatus.CLOSED:
+            ticket.events.append(
+                TicketEvent(
+                    from_status=previous,
+                    to_status=TicketStatus.CLOSED,
+                    actor=payload.actor,
+                    comment=payload.comment or "Обращение закрыто",
+                )
+            )
+
+        await self.session.commit()
+        await self.session.refresh(ticket)
+        return ticket
+
+    async def set_feedback(self, ticket_id: uuid.UUID, payload: FeedbackCreate) -> TicketFeedback:
+        """Оценка обращения после закрытия. Повторный вызов перезаписывает оценку."""
+        ticket = await self.get(ticket_id)
+        if ticket.status != TicketStatus.CLOSED:
+            raise TicketNotClosedError(ticket.status)
+
+        if ticket.feedback is None:
+            ticket.feedback = TicketFeedback(score=payload.score, comment=payload.comment)
+        else:
+            ticket.feedback.score = payload.score
+            ticket.feedback.comment = payload.comment
+
+        await self.session.commit()
+        await self.session.refresh(ticket)
+        return ticket.feedback
+
+    async def get_feedback(self, ticket_id: uuid.UUID) -> TicketFeedback:
+        ticket = await self.get(ticket_id)
+        if ticket.feedback is None:
+            raise FeedbackNotFoundError(ticket_id)
+        return ticket.feedback
+
     async def delete(self, ticket_id: uuid.UUID) -> None:
         ticket = await self.get(ticket_id)
         await self.session.delete(ticket)
@@ -153,7 +213,7 @@ class TicketService:
     @staticmethod
     def _apply_status_side_effects(ticket: Ticket, status: TicketStatus) -> None:
         """Поля-отметки времени, зависящие от нового статуса."""
-        if status == TicketStatus.COMPLETED:
+        if status == TicketStatus.CLOSED:
             ticket.closed_at = ticket.closed_at or datetime.now(UTC)
         else:
             ticket.closed_at = None
