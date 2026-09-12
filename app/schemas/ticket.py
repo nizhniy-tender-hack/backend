@@ -64,6 +64,9 @@ class TicketClose(BaseModel):
     actor: ActorType = ActorType.USER
     resolution: str | None = Field(default=None, description="Итог обработки обращения")
     comment: str | None = Field(default=None, description="Комментарий к записи в истории")
+    transcript: str | None = Field(
+        default=None, description="Полный текст диалога, накопленный на фронте к моменту закрытия"
+    )
 
 
 class FeedbackCreate(BaseModel):
@@ -110,6 +113,7 @@ class TicketRead(BaseModel):
     summary: str | None
     resolution: str | None
     assignee: str | None
+    transcript: str | None = None
     metadata: dict | None = Field(default=None, validation_alias="meta")
     escalated_at: datetime | None
     closed_at: datetime | None

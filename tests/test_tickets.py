@@ -82,6 +82,31 @@ async def test_close_endpoint_closes_ticket_and_writes_event(client: AsyncClient
     assert events[-1]["actor"] == "user"
 
 
+async def test_close_stores_transcript(client: AsyncClient) -> None:
+    ticket = await _create(client)
+    transcript = "Пользователь: вопрос\n\nАгент: ответ"
+    response = await client.post(
+        f"{API}/tickets/{ticket['id']}/close",
+        json={"actor": "user", "transcript": transcript},
+    )
+    assert response.status_code == 200
+    assert response.json()["transcript"] == transcript
+
+    fetched = (await client.get(f"{API}/tickets/{ticket['id']}")).json()
+    assert fetched["transcript"] == transcript
+
+
+async def test_double_close_without_transcript_keeps_previous(client: AsyncClient) -> None:
+    ticket = await _create(client)
+    transcript = "Пользователь: вопрос\n\nАгент: ответ"
+    await client.post(
+        f"{API}/tickets/{ticket['id']}/close",
+        json={"actor": "user", "transcript": transcript},
+    )
+    second = await client.post(f"{API}/tickets/{ticket['id']}/close", json={})
+    assert second.json()["transcript"] == transcript
+
+
 async def test_closed_ticket_cannot_be_reopened(client: AsyncClient) -> None:
     ticket = await _create(client)
     await client.post(f"{API}/tickets/{ticket['id']}/close", json={})

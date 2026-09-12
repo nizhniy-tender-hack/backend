@@ -191,6 +191,8 @@ class TicketService:
         ticket.status = TicketStatus.CLOSED
         if payload.resolution is not None:
             ticket.resolution = payload.resolution
+        if payload.transcript is not None:
+            ticket.transcript = payload.transcript
         self._apply_status_side_effects(ticket, TicketStatus.CLOSED)
 
         if previous != TicketStatus.CLOSED:
