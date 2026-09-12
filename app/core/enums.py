@@ -26,6 +26,23 @@ class EscalationReason(StrEnum):
     PROFANITY = "profanity"  # сработал профанити-фильтр
 
 
+class TicketSort(StrEnum):
+    """Порядок выдачи списка обращений."""
+
+    CREATED_DESC = "created_desc"  # сначала новые (по умолчанию)
+    STATUS_PRIORITY = "status_priority"  # сначала требующие внимания, закрытые в конце
+
+
+# Вес статуса при сортировке `status_priority`: чем меньше, тем выше в списке.
+# Наверху то, что ждёт человека, внизу — уже закрытые обращения.
+STATUS_WEIGHT: dict[TicketStatus, int] = {
+    TicketStatus.IN_SUPPORT: 0,
+    TicketStatus.IN_PROGRESS: 1,
+    TicketStatus.CREATED: 2,
+    TicketStatus.CLOSED: 3,
+}
+
+
 class ActorType(StrEnum):
     """Кто выполнил действие над обращением — для истории статусов."""
 

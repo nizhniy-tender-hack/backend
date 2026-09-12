@@ -41,7 +41,7 @@ uvicorn app.main:app --reload
 ### Тесты
 
 ```bash
-pytest -q        # 16 тестов, идут на in-memory SQLite, PostgreSQL не нужен
+pytest -q        # 20 тестов, идут на in-memory SQLite, PostgreSQL не нужен
 ```
 
 ## Модель данных
@@ -89,7 +89,7 @@ created ──▶ in_progress ──▶ in_support ──▶ closed
 | Метод | Путь | Назначение |
 |---|---|---|
 | POST | `/tickets` | Создать обращение (вызывает фронт из чата) |
-| GET | `/tickets` | Список с фильтрами `status`, `support_line`, `thread_id`, `user_id` + `limit`/`offset` |
+| GET | `/tickets` | Список с фильтрами `status`, `support_line`, `thread_id`, `user_id`, порядком `sort` + `limit`/`offset` |
 | GET | `/tickets/{id}` | Обращение вместе с историей статусов |
 | PATCH | `/tickets/{id}` | Обновить поля (линия поддержки, саммари, исполнитель, metadata) |
 | POST | `/tickets/{id}/status` | Явная смена статуса с записью в историю |
@@ -100,6 +100,24 @@ created ──▶ in_progress ──▶ in_support ──▶ closed
 | GET | `/tickets/{id}/events` | История изменений |
 | DELETE | `/tickets/{id}` | Удалить обращение |
 | GET | `/health`, `/health/db` | Живость сервиса и доступность БД |
+
+### Порядок выдачи списка и история сессии
+
+Параметр `sort` у `GET /tickets`:
+
+| Значение | Порядок |
+|---|---|
+| `created_desc` (по умолчанию) | Сначала новые |
+| `status_priority` | `in_support` → `in_progress` → `created` → `closed`, внутри статуса — сначала новые |
+
+Замыкающий ключ сортировки — `id`: без него обращения с одинаковым `created_at`
+выдаются в произвольном порядке и постраничная выдача начинает дублировать строки.
+
+Фронт помечает все обращения одной вкладки браузера общим `user_id` (идентификатор
+сессии) и получает историю запросом
+`GET /tickets?user_id=<сессия>&sort=status_priority`. Обращения при этом никогда
+не удаляются: «Новое обращение» в интерфейсе просто заводит следующий тикет с новым
+`thread_id`, а прошлые остаются в базе со своими статусами.
 
 ### Примеры
 
@@ -161,7 +179,18 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 Маршрутизация на домене (см. [deploy/nginx.conf](deploy/nginx.conf)): `/backend/api/v1/*`
 проксируется в backend (`127.0.0.1:8000/api/v1/*`), `/ml` зарезервирован под ML-сервис
-(пока отвечает заглушкой 503), корень — под фронтенд.
+(пока отвечает заглушкой 503), корень — собранный фронтенд из `/srv/ked-ai/frontend`
+с SPA-fallback на `index.html`.
+
+Выкладка фронтенда (репозиторий `assistant-ui-agent-front`):
+
+```bash
+npm run build && rsync -a --delete dist/ server:/srv/ked-ai/frontend/
+```
+
+Когда появится ML-сервис, блок `/ml` заменяется на `proxy_pass` — заготовка с нужными
+настройками лежит закомментированной рядом. Ключевое там: `proxy_buffering off`,
+иначе nginx копит SSE-ответ целиком и стриминг ответа в чате не работает.
 
 **Предусловия на сервере:** A-запись `ked-ai.site` → IP сервера, установлены `nginx` и
 `certbot` (`apt install nginx certbot python3-certbot-nginx`), открытые порты 80 и 443

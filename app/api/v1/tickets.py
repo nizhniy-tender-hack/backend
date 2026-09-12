@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.api.deps import TicketServiceDep
-from app.core.enums import SupportLine, TicketStatus
+from app.core.enums import SupportLine, TicketSort, TicketStatus
 from app.schemas.ticket import (
     FeedbackCreate,
     FeedbackRead,
@@ -41,14 +41,17 @@ async def list_tickets(
     support_line: SupportLine | None = None,
     thread_id: str | None = None,
     user_id: str | None = None,
+    sort: TicketSort = TicketSort.CREATED_DESC,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[TicketRead]:
+    """`sort=status_priority` поднимает наверх обращения, ждущие человека, закрытые уводит вниз."""
     items, total = await service.list(
         status=status_filter,
         support_line=support_line,
         thread_id=thread_id,
         user_id=user_id,
+        sort=sort,
         limit=limit,
         offset=offset,
     )

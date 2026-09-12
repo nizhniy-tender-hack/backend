@@ -1,10 +1,17 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import ActorType, SupportLine, TicketStatus, is_transition_allowed
+from app.core.enums import (
+    STATUS_WEIGHT,
+    ActorType,
+    SupportLine,
+    TicketSort,
+    TicketStatus,
+    is_transition_allowed,
+)
 from app.core.exceptions import (
     FeedbackNotFoundError,
     InvalidStatusTransitionError,
@@ -67,6 +74,7 @@ class TicketService:
         support_line: SupportLine | None = None,
         thread_id: str | None = None,
         user_id: str | None = None,
+        sort: TicketSort = TicketSort.CREATED_DESC,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Ticket], int]:
@@ -83,9 +91,25 @@ class TicketService:
         total = await self.session.scalar(
             select(func.count()).select_from(query.order_by(None).subquery())
         )
-        result = await self.session.scalars(
-            query.order_by(Ticket.created_at.desc()).limit(limit).offset(offset)
-        )
+
+        # `id` в конце — тайбрейкер: без него обращения с одинаковым created_at
+        # выдаются в произвольном порядке, и постраничная выдача начинает
+        # дублировать либо терять строки между limit/offset-запросами.
+        if sort is TicketSort.STATUS_PRIORITY:
+            # Наверху обращения, ждущие человека; закрытые уходят в конец.
+            # Внутри одного статуса — сначала свежие.
+            # Сравнения строим явно: словарная форма case(..., value=...) не приводит
+            # ключи к типу колонки и подставляет значения перечисления вместо имён,
+            # которыми оно хранится в БД — тогда ни одно WHEN не срабатывает.
+            weight = case(
+                *[(Ticket.status == item, order) for item, order in STATUS_WEIGHT.items()],
+                else_=len(STATUS_WEIGHT),
+            )
+            ordering = (weight.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+        else:
+            ordering = (Ticket.created_at.desc(), Ticket.id.desc())
+
+        result = await self.session.scalars(query.order_by(*ordering).limit(limit).offset(offset))
         return list(result.all()), int(total or 0)
 
     async def update(self, ticket_id: uuid.UUID, payload: TicketUpdate) -> Ticket:

@@ -189,6 +189,83 @@ async def test_patch_updates_support_line(client: AsyncClient) -> None:
     assert body["assignee"] == "operator-7"
 
 
+async def test_list_scoped_by_user_id(client: AsyncClient) -> None:
+    """Фронт передаёт `user_id` сессии браузера и по нему получает историю обращений."""
+    await _create(client, thread_id="s1-a", user_id="session-1")
+    await _create(client, thread_id="s1-b", user_id="session-1")
+    await _create(client, thread_id="s2-a", user_id="session-2")
+
+    response = await client.get(f"{API}/tickets", params={"user_id": "session-1"})
+    assert response.json()["total"] == 2
+
+
+async def test_sort_by_status_priority(client: AsyncClient) -> None:
+    """Ждущие человека — наверху, закрытые — в конце.
+
+    По два обращения на статус: при сломанной сортировке (одинаковый вес у всех)
+    порядок определялся бы временем создания, и такая раскладка не сложилась бы.
+    """
+    for index in range(2):
+        waiting = await _create(client, thread_id=f"w-{index}", user_id="s")
+        await client.post(f"{API}/tickets/{waiting['id']}/escalate", json={})
+
+        answering = await _create(client, thread_id=f"a-{index}", user_id="s")
+        await client.post(
+            f"{API}/tickets/{answering['id']}/status",
+            json={"status": "in_progress", "actor": "agent"},
+        )
+
+        await _create(client, thread_id=f"f-{index}", user_id="s")
+
+        done = await _create(client, thread_id=f"c-{index}", user_id="s")
+        await client.post(f"{API}/tickets/{done['id']}/close", json={})
+
+    response = await client.get(
+        f"{API}/tickets", params={"user_id": "s", "sort": "status_priority"}
+    )
+    statuses = [item["status"] for item in response.json()["items"]]
+    assert statuses == [
+        "in_support",
+        "in_support",
+        "in_progress",
+        "in_progress",
+        "created",
+        "created",
+        "closed",
+        "closed",
+    ]
+
+
+async def test_pagination_does_not_repeat_tickets(client: AsyncClient) -> None:
+    """Порядок устойчив: страницы не пересекаются даже при одинаковом created_at."""
+    for index in range(6):
+        await _create(client, thread_id=f"page-{index}", user_id="pager")
+
+    first_page = await client.get(
+        f"{API}/tickets", params={"user_id": "pager", "limit": 3, "offset": 0}
+    )
+    second_page = await client.get(
+        f"{API}/tickets", params={"user_id": "pager", "limit": 3, "offset": 3}
+    )
+    ids = [item["id"] for item in first_page.json()["items"]] + [
+        item["id"] for item in second_page.json()["items"]
+    ]
+    assert len(set(ids)) == 6
+
+
+async def test_new_dialog_does_not_touch_previous_tickets(client: AsyncClient) -> None:
+    """«Новое обращение» на фронте заводит новый тикет, старые остаются в базе как есть."""
+    old = await _create(client, thread_id="old-thread", user_id="same-session")
+    await client.post(f"{API}/tickets/{old['id']}/escalate", json={})
+
+    await _create(client, thread_id="new-thread", user_id="same-session")
+
+    history = (await client.get(f"{API}/tickets", params={"user_id": "same-session"})).json()
+    assert history["total"] == 2
+    kept = next(item for item in history["items"] if item["id"] == old["id"])
+    assert kept["status"] == "in_support"
+
+
 async def test_unknown_ticket_returns_404(client: AsyncClient) -> None:
     response = await client.get(f"{API}/tickets/11111111-1111-1111-1111-111111111111")
     assert response.status_code == 404
