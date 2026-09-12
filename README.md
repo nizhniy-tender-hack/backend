@@ -59,6 +59,7 @@ pytest -q        # 20 тестов, идут на in-memory SQLite, PostgreSQL �
 | `escalation_reason` | enum | `user_requested` / `agent_initiated` / `profanity` |
 | `summary` | text | Саммари диалога для оператора при эскалации |
 | `resolution`, `assignee` | text/str | Итог обработки и назначенный специалист |
+| `transcript` | text | Полный текст диалога; фронт кэширует его у себя и присылает при закрытии (`POST /tickets/{id}/close`) |
 | `metadata` | JSONB | Произвольные данные от ML (confidence, источники) |
 | `escalated_at`, `closed_at`, `created_at`, `updated_at` | timestamptz | Отметки времени |
 
@@ -218,6 +219,5 @@ tests/                 pytest
 ## Что дальше
 
 - Агрегаты по оценкам (средний балл по линиям поддержки) для аналитики системных проблем.
-- Хранение логов диалогов для эвала и аналитики системных проблем.
 - Прокси SSE-потока от ML-сервиса к фронтенду.
 - Аутентификация — сейчас API открыт, `user_id` приходит от клиента как есть.

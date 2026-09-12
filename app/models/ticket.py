@@ -62,6 +62,8 @@ class Ticket(TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
     assignee: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Полный текст диалога, который фронт кэширует у себя и присылает при закрытии.
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Произвольные данные от ML-сервиса: confidence, источники ответа и т.п.
     meta: Mapped[dict | None] = mapped_column("metadata", JSONType, nullable=True)
