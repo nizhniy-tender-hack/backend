@@ -100,7 +100,31 @@ created ──▶ in_progress ──▶ in_support ──▶ closed
 | GET | `/tickets/{id}/feedback` | Оценка обращения (404, если ещё не оценено) |
 | GET | `/tickets/{id}/events` | История изменений |
 | DELETE | `/tickets/{id}` | Удалить обращение |
+| GET | `/analytics/overview` | **Сводка для админки**: доля обращений, закрытых ML, эскалации и распределение оценок |
 | GET | `/health`, `/health/db` | Живость сервиса и доступность БД |
+
+### Аналитика (`GET /analytics/overview`)
+
+Одним запросом отдаёт метрики для админского экрана. Необязательные
+`date_from`/`date_to` (ISO 8601) ограничивают период по `created_at`.
+
+Ключевое деление — **кто довёл обращение до конца**. «Закрыла ML» = обращение
+дошло до `closed`, ни разу не побывав у человека (`escalated_at IS NULL`). Как
+только была эскалация, обращение считается ушедшим на поддержку, даже если
+закрыл его потом сам пользователь: статус этого уже не показывает, поэтому
+признак берётся по `escalated_at`, а не по текущему статусу.
+
+| Блок ответа | Что внутри |
+|---|---|
+| `totals` | Число обращений в каждом статусе |
+| `resolution` | `closed_by_ml`, `closed_after_escalation`, `escalated_total`, `escalated_open`, `ml_resolution_rate`, `escalation_rate` |
+| `ratings` | Распределение оценок 1–5 и средний балл: `overall`, `ml_closed`, `escalated` |
+| `by_support_line` | Те же счётчики и оценки в разрезе линии (`null` — линию ML не проставил) |
+| `by_escalation_reason` | Сколько эскалаций пришлось на каждую причину |
+
+`ml_resolution_rate` считается от обращений с понятным исходом — закрытых плюс
+висящих у поддержки; `created`/`in_progress` в знаменатель не входят, они ещё
+ничего не решили. Считается всё агрегатами в SQL, обращения в питон не тянутся.
 
 ### Порядок выдачи списка и история сессии
 
@@ -209,8 +233,8 @@ app/
   db/                  declarative Base, async-движок и сессия
   models/ticket.py     Ticket, TicketEvent, TicketFeedback
   schemas/ticket.py    Pydantic-схемы запросов/ответов
-  services/tickets.py  бизнес-логика (роутеры тонкие)
-  api/v1/              роутеры: tickets, health
+  services/            бизнес-логика (роутеры тонкие): tickets, analytics
+  api/v1/              роутеры: tickets, analytics, health
 migrations/            Alembic
 deploy/nginx.conf      reverse proxy для прода (TLS через certbot)
 tests/                 pytest
@@ -218,6 +242,5 @@ tests/                 pytest
 
 ## Что дальше
 
-- Агрегаты по оценкам (средний балл по линиям поддержки) для аналитики системных проблем.
 - Прокси SSE-потока от ML-сервиса к фронтенду.
 - Аутентификация — сейчас API открыт, `user_id` приходит от клиента как есть.
