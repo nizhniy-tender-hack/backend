@@ -70,10 +70,18 @@ class TicketClose(BaseModel):
 
 
 class FeedbackCreate(BaseModel):
-    """Оценка обращения пользователем после закрытия: звёзды + комментарий."""
+    """Оценка обращения пользователем после закрытия: звёзды + комментарий.
+
+    `summary`/`transcript` — саммари и история переписки, которые фронт
+    присылает той же кнопкой «Отправить оценку». Складываются в
+    `training_examples` (см. `TicketService._record_training_example`) —
+    заготовка на будущее, использования пока нет.
+    """
 
     score: int = Field(ge=1, le=5, description="Оценка от 1 до 5 звёзд")
     comment: str | None = Field(default=None, max_length=4000)
+    summary: str | None = Field(default=None, description="Саммари диалога на момент оценки")
+    transcript: str | None = Field(default=None, description="Полный текст диалога на момент оценки")
 
 
 class FeedbackRead(BaseModel):

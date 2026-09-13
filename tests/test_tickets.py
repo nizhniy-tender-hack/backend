@@ -1,4 +1,10 @@
+import uuid
+
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.training_example import TrainingExample
 
 API = "/api/v1"
 
@@ -148,6 +154,55 @@ async def test_feedback_after_close(client: AsyncClient) -> None:
     ticket_body = (await client.get(f"{API}/tickets/{ticket['id']}")).json()
     assert ticket_body["feedback"]["score"] == 5
     assert ticket_body["feedback"]["comment"] == "Быстро помогли"
+
+
+async def test_feedback_saves_training_example(client: AsyncClient, session: AsyncSession) -> None:
+    ticket = await _create(client)
+    await client.post(f"{API}/tickets/{ticket['id']}/close", json={})
+
+    response = await client.post(
+        f"{API}/tickets/{ticket['id']}/feedback",
+        json={
+            "score": 5,
+            "comment": "Быстро помогли",
+            "summary": "Пользователь не мог пройти аккредитацию, помогли с ЭП",
+            "transcript": "Пользователь: вопрос\n\nАгент: ответ",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    example = await session.scalar(
+        select(TrainingExample).where(TrainingExample.ticket_id == uuid.UUID(ticket["id"]))
+    )
+    assert example is not None
+    assert example.question == ticket["question"]
+    assert example.score == 5
+    assert example.summary == "Пользователь не мог пройти аккредитацию, помогли с ЭП"
+    assert example.transcript == "Пользователь: вопрос\n\nАгент: ответ"
+
+
+async def test_rerating_updates_same_training_example(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    ticket = await _create(client)
+    await client.post(f"{API}/tickets/{ticket['id']}/close", json={})
+
+    await client.post(
+        f"{API}/tickets/{ticket['id']}/feedback",
+        json={"score": 2, "summary": "первая версия", "transcript": "…"},
+    )
+    await client.post(
+        f"{API}/tickets/{ticket['id']}/feedback",
+        json={"score": 5, "summary": "вторая версия", "transcript": "…"},
+    )
+
+    result = await session.scalars(
+        select(TrainingExample).where(TrainingExample.ticket_id == uuid.UUID(ticket["id"]))
+    )
+    examples = result.all()
+    assert len(examples) == 1
+    assert examples[0].score == 5
+    assert examples[0].summary == "вторая версия"
 
 
 async def test_feedback_before_close_is_rejected(client: AsyncClient) -> None:
