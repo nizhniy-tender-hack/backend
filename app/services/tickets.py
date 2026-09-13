@@ -19,6 +19,7 @@ from app.core.exceptions import (
     TicketNotFoundError,
 )
 from app.models.ticket import Ticket, TicketEvent, TicketFeedback
+from app.models.training_example import TrainingExample
 from app.schemas.ticket import (
     FeedbackCreate,
     TicketClose,
@@ -210,7 +211,12 @@ class TicketService:
         return ticket
 
     async def set_feedback(self, ticket_id: uuid.UUID, payload: FeedbackCreate) -> TicketFeedback:
-        """Оценка обращения после закрытия. Повторный вызов перезаписывает оценку."""
+        """Оценка обращения после закрытия. Повторный вызов перезаписывает оценку.
+
+        Заодно кладёт саммари и историю переписки, которые фронт присылает тут
+        же, в `training_examples` — заготовка на будущее (см. `models.training_example`),
+        сейчас ничего с этими данными не делающая, кроме сохранения.
+        """
         ticket = await self.get(ticket_id)
         if ticket.status != TicketStatus.CLOSED:
             raise TicketNotClosedError(ticket.status)
@@ -221,9 +227,35 @@ class TicketService:
             ticket.feedback.score = payload.score
             ticket.feedback.comment = payload.comment
 
+        await self._record_training_example(ticket, payload)
         await self.session.commit()
         await self.session.refresh(ticket)
         return ticket.feedback
+
+    async def _record_training_example(self, ticket: Ticket, payload: FeedbackCreate) -> None:
+        """Сохраняет вопрос, саммари, историю и оценку в `training_examples`.
+
+        Саммари и история берутся из тела запроса, а не из полей тикета: фронт
+        присылает их явно с той же кнопкой «Отправить оценку» — так это не
+        зависит от того, был ли когда-либо заполнен `ticket.summary`/`transcript`.
+        Не коммитит сама — коммитит `set_feedback` вместе со своими изменениями.
+        Ключ дедупликации — `ticket_id`: переоценка обновляет ту же строку.
+        """
+        existing = await self.session.scalar(
+            select(TrainingExample).where(TrainingExample.ticket_id == ticket.id)
+        )
+        if existing is None:
+            existing = TrainingExample(ticket_id=ticket.id, question=ticket.question)
+            self.session.add(existing)
+
+        existing.question = ticket.question
+        existing.score = payload.score
+        if payload.summary is not None:
+            existing.summary = payload.summary
+        if payload.transcript is not None:
+            existing.transcript = payload.transcript
+        if ticket.support_line is not None:
+            existing.support_line = ticket.support_line.value
 
     async def get_feedback(self, ticket_id: uuid.UUID) -> TicketFeedback:
         ticket = await self.get(ticket_id)
