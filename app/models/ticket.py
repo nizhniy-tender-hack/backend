@@ -10,13 +10,14 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
-from app.core.enums import ActorType, EscalationReason, SupportLine, TicketStatus
+from app.core.enums import ActorType, EscalationReason, MessageRole, SupportLine, TicketStatus
 from app.db.base import Base, TimestampMixin
 
 # JSONB в PostgreSQL, обычный JSON в остальных диалектах (SQLite в тестах).
@@ -134,3 +135,33 @@ class TicketFeedback(TimestampMixin, Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ticket: Mapped[Ticket] = relationship(back_populates="feedback")
+
+
+class TicketMessage(Base):
+    """Реплика диалога обращения: фронт присылает все сообщения одним пакетом
+    при завершении (`POST /tickets/{id}/complete`)."""
+
+    __tablename__ = "ticket_messages"
+    __table_args__ = (
+        # Уникальность пары заодно индексирует выборку сообщений одного обращения.
+        UniqueConstraint("ticket_id", "position", name="uq_ticket_messages_ticket_id_position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False
+    )
+    # Порядок реплики в диалоге — по индексу в присланном списке.
+    position: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole, name="message_role", native_enum=False, length=32), nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Связи с Ticket намеренно нет: сообщения не должны ехать в каждом ответе
+    # (список обращений не тянет целые диалоги). Чтение — `GET /tickets/{id}/messages`,
+    # удаление вместе с обращением — каскадом на уровне БД.

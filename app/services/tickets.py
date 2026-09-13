@@ -1,10 +1,12 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import (
+    MESSAGE_ROLE_LABEL,
     STATUS_WEIGHT,
     ActorType,
     SupportLine,
@@ -18,10 +20,12 @@ from app.core.exceptions import (
     TicketNotClosedError,
     TicketNotFoundError,
 )
-from app.models.ticket import Ticket, TicketEvent, TicketFeedback
+from app.models.ticket import Ticket, TicketEvent, TicketFeedback, TicketMessage
 from app.schemas.ticket import (
     FeedbackCreate,
+    MessageIn,
     TicketClose,
+    TicketComplete,
     TicketCreate,
     TicketEscalate,
     TicketStatusUpdate,
@@ -209,17 +213,93 @@ class TicketService:
         await self.session.refresh(ticket)
         return ticket
 
+    async def complete(self, ticket_id: uuid.UUID, payload: TicketComplete) -> Ticket:
+        """Завершение обращения одним запросом: закрытие + оценка + саммари + все сообщения.
+
+        Заменяет связку `close` + `feedback` (они продолжают работать по
+        отдельности). Как и `close`, идемпотентен для уже закрытого обращения:
+        повторный вызов не плодит записи в истории и не сдвигает `closed_at`,
+        но перезаписывает сообщения и оценку присланными.
+        """
+        ticket = await self.get(ticket_id)
+        if not is_transition_allowed(ticket.status, TicketStatus.CLOSED):
+            raise InvalidStatusTransitionError(ticket.status, TicketStatus.CLOSED)
+
+        previous = ticket.status
+        ticket.status = TicketStatus.CLOSED
+        if payload.resolution is not None:
+            ticket.resolution = payload.resolution
+        if payload.summary is not None:
+            ticket.summary = payload.summary
+        if payload.messages is not None:
+            await self._replace_messages(ticket, payload.messages)
+        if payload.feedback is not None:
+            self._upsert_feedback(ticket, payload.feedback)
+        self._apply_status_side_effects(ticket, TicketStatus.CLOSED)
+
+        if previous != TicketStatus.CLOSED:
+            ticket.events.append(
+                TicketEvent(
+                    from_status=previous,
+                    to_status=TicketStatus.CLOSED,
+                    actor=payload.actor,
+                    comment=payload.comment or "Обращение закрыто",
+                )
+            )
+
+        await self.session.commit()
+        await self.session.refresh(ticket)
+        return ticket
+
+    async def list_messages(self, ticket_id: uuid.UUID) -> list[TicketMessage]:
+        """Сообщения диалога обращения в порядке реплик."""
+        await self.get(ticket_id)
+        result = await self.session.scalars(
+            select(TicketMessage)
+            .where(TicketMessage.ticket_id == ticket_id)
+            .order_by(TicketMessage.position)
+        )
+        return list(result.all())
+
+    async def _replace_messages(self, ticket: Ticket, messages: Sequence[MessageIn]) -> None:
+        """Присланный снимок диалога — авторитетный: старые реплики стираем."""
+        await self.session.execute(
+            delete(TicketMessage).where(TicketMessage.ticket_id == ticket.id)
+        )
+        self.session.add_all(
+            TicketMessage(
+                ticket_id=ticket.id,
+                position=position,
+                role=message.role,
+                content=message.content,
+            )
+            for position, message in enumerate(messages)
+        )
+        # Текстовое представление остаётся для мест, где диалог нужен как
+        # plain-text (карточка закрытого обращения на фронте, вид оператора).
+        # Формат совпадает с lib/transcript.ts, чтобы парсер фронта работал как есть.
+        transcript = "\n\n".join(
+            f"{MESSAGE_ROLE_LABEL[message.role]}: {message.content.strip()}"
+            for message in messages
+        )
+        ticket.transcript = transcript or None
+
+    @staticmethod
+    def _upsert_feedback(ticket: Ticket, payload: FeedbackCreate) -> None:
+        """Одно обращение — одна оценка: повторная отправка перезаписывает её."""
+        if ticket.feedback is None:
+            ticket.feedback = TicketFeedback(score=payload.score, comment=payload.comment)
+        else:
+            ticket.feedback.score = payload.score
+            ticket.feedback.comment = payload.comment
+
     async def set_feedback(self, ticket_id: uuid.UUID, payload: FeedbackCreate) -> TicketFeedback:
         """Оценка обращения после закрытия. Повторный вызов перезаписывает оценку."""
         ticket = await self.get(ticket_id)
         if ticket.status != TicketStatus.CLOSED:
             raise TicketNotClosedError(ticket.status)
 
-        if ticket.feedback is None:
-            ticket.feedback = TicketFeedback(score=payload.score, comment=payload.comment)
-        else:
-            ticket.feedback.score = payload.score
-            ticket.feedback.comment = payload.comment
+        self._upsert_feedback(ticket, payload)
 
         await self.session.commit()
         await self.session.refresh(ticket)
