@@ -55,6 +55,20 @@ async def test_escalate_moves_ticket_to_support(client: AsyncClient) -> None:
     assert body["escalated_at"] is not None
 
 
+async def test_escalate_accepts_clarify_and_context_exhausted_reasons(client: AsyncClient) -> None:
+    # Регрессия: у ML пять причин эскалации (см. docs/frontend.md в репо ml),
+    # а бэк одно время признавал только три — реальный запрос с этими
+    # значениями падал 422 ("Input should be 'user_requested', ...").
+    for reason in ("clarify_exhausted", "context_exhausted"):
+        ticket = await _create(client, thread_id=f"thread-{reason}")
+        response = await client.post(
+            f"{API}/tickets/{ticket['id']}/escalate",
+            json={"reason": reason, "support_line": "second", "summary": "…"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["escalation_reason"] == reason
+
+
 async def test_status_flow_to_closed_sets_closed_at(client: AsyncClient) -> None:
     ticket = await _create(client)
     await client.post(
