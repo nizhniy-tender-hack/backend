@@ -4,7 +4,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import ActorType, EscalationReason, MessageRole, SupportLine, TicketStatus
+from app.core.enums import ActorType, EscalationReason, SupportLine, TicketStatus
 
 T = TypeVar("T")
 
@@ -74,48 +74,6 @@ class FeedbackCreate(BaseModel):
 
     score: int = Field(ge=1, le=5, description="Оценка от 1 до 5 звёзд")
     comment: str | None = Field(default=None, max_length=4000)
-
-
-class MessageIn(BaseModel):
-    """Реплика диалога, которую фронт присылает при завершении обращения."""
-
-    role: MessageRole
-    content: str = Field(min_length=1, max_length=20000)
-
-
-class TicketComplete(BaseModel):
-    """Завершение обращения одним запросом: закрытие + оценка + саммари + все сообщения.
-
-    Заменяет связку `close` + `feedback`: фронт присылает всё, что накопил к
-    моменту завершения, одним вызовом.
-    """
-
-    actor: ActorType = ActorType.USER
-    resolution: str | None = Field(default=None, description="Итог обработки обращения")
-    comment: str | None = Field(default=None, description="Комментарий к записи в истории")
-    summary: str | None = Field(
-        default=None, description="Саммари диалога; не передано — сохранённое не меняется"
-    )
-    feedback: FeedbackCreate | None = Field(
-        default=None, description="Оценка 1-5 и комментарий; не передана — оценка не ставится"
-    )
-    messages: list[MessageIn] | None = Field(
-        default=None,
-        max_length=500,
-        description="Все сообщения диалога; перезаписывают сохранённые ранее. "
-        "Не переданы — сохранённые не меняются",
-    )
-
-
-class MessageRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    ticket_id: uuid.UUID
-    position: int
-    role: MessageRole
-    content: str
-    created_at: datetime
 
 
 class FeedbackRead(BaseModel):

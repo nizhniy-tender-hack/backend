@@ -41,7 +41,7 @@ uvicorn app.main:app --reload
 ### Тесты
 
 ```bash
-pytest -q        # 33 теста, идут на in-memory SQLite, PostgreSQL не нужен
+pytest -q        # 20 тестов, идут на in-memory SQLite, PostgreSQL не нужен
 ```
 
 ## Модель данных
@@ -66,13 +66,6 @@ pytest -q        # 33 теста, идут на in-memory SQLite, PostgreSQL н�
 **ticket_events** — история: `from_status → to_status`, `actor`
 (`user`/`agent`/`specialist`/`system`), `comment`, `created_at`. Пишется на каждую
 смену статуса, удаляется каскадно вместе с тикетом.
-
-**ticket_messages** — реплики диалога (`role` `user`/`assistant`, `content`,
-`position` — порядок). Фронт присылает все сообщения одним пакетом при завершении
-обращения (`POST /tickets/{id}/complete`); повторный вызов перезаписывает их.
-Пара (`ticket_id`, `position`) уникальна, удаление — каскадом вместе с тикетом.
-По сохранённым сообщениям бэк сам собирает текстовый `transcript` в формате
-парсера фронта (`Пользователь: …\n\nАгент: …`).
 
 **ticket_feedback** — оценка обращения: `score` (1–5, CHECK в БД), `comment`,
 `created_at`, `updated_at`. Одна оценка на обращение (`ticket_id` UNIQUE),
@@ -103,8 +96,6 @@ created ──▶ in_progress ──▶ in_support ──▶ closed
 | POST | `/tickets/{id}/status` | Явная смена статуса с записью в историю |
 | POST | `/tickets/{id}/escalate` | **Вызов сотрудника** → `in_support` + причина + саммари |
 | POST | `/tickets/{id}/close` | **Закрыть обращение** → `closed`; после этого фронт показывает форму оценки |
-| POST | `/tickets/{id}/complete` | **Завершить обращение одним запросом**: закрытие + оценка + саммари + все сообщения диалога |
-| GET | `/tickets/{id}/messages` | Сообщения диалога обращения (структурно, по порядку реплик) |
 | POST | `/tickets/{id}/feedback` | **Оценка 1–5 звёзд + комментарий**; только для закрытого обращения, иначе 409 |
 | GET | `/tickets/{id}/feedback` | Оценка обращения (404, если ещё не оценено) |
 | GET | `/tickets/{id}/events` | История изменений |
@@ -168,27 +159,6 @@ curl -X POST localhost:8000/api/v1/tickets/<id>/feedback -H 'Content-Type: appli
 }'
 ```
 
-Завершение одним запросом — фронт присылает всё, что накопил к концу диалога:
-оценку, саммари и все сообщения (вместо связки `close` + `feedback`):
-
-```bash
-curl -X POST localhost:8000/api/v1/tickets/<id>/complete -H 'Content-Type: application/json' -d '{
-  "summary": "Пользователь спрашивал, как создать оферту.",
-  "feedback": {"score": 5, "comment": "Помогли"},
-  "messages": [
-    {"role": "user", "content": "Как создать оферту?"},
-    {"role": "assistant", "content": "Откройте раздел «Оферты» и нажмите «Создать»."}
-  ]
-}'
-```
-
-Все поля, кроме отсутствия самого тикета, опциональны: не пришла оценка — не
-ставится, не пришло саммари — сохранённое (например, с эскалации) не трогается,
-не пришли сообщения — таблица не меняется. Для уже закрытого обращения вызов
-идемпотентен: историю не плодит, `closed_at` не сдвигает, а оценку и сообщения
-перезаписывает присланными. Текстовый `transcript` собирается на бэке из
-`messages` автоматически.
-
 ## Деплой на прод (ked-ai.site)
 
 ```bash
@@ -237,7 +207,7 @@ app/
   main.py              точка входа FastAPI
   core/                config (pydantic-settings), enums, HTTP-исключения
   db/                  declarative Base, async-движок и сессия
-  models/ticket.py     Ticket, TicketEvent, TicketFeedback, TicketMessage
+  models/ticket.py     Ticket, TicketEvent, TicketFeedback
   schemas/ticket.py    Pydantic-схемы запросов/ответов
   services/tickets.py  бизнес-логика (роутеры тонкие)
   api/v1/              роутеры: tickets, health

@@ -1,3 +1,3 @@
-from app.models.ticket import Ticket, TicketEvent, TicketFeedback, TicketMessage
+from app.models.ticket import Ticket, TicketEvent, TicketFeedback
 
-__all__ = ["Ticket", "TicketEvent", "TicketFeedback", "TicketMessage"]
+__all__ = ["Ticket", "TicketEvent", "TicketFeedback"]

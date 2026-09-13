@@ -26,21 +26,6 @@ class EscalationReason(StrEnum):
     PROFANITY = "profanity"  # сработал профанити-фильтр
 
 
-class MessageRole(StrEnum):
-    """Автор реплики диалога обращения."""
-
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-# Подписи ролей для текстового `transcript`. Должны совпадать с ROLE_LABEL в
-# lib/transcript.ts на фронте: парсер фронта узнаёт реплики именно по ним.
-MESSAGE_ROLE_LABEL: dict[MessageRole, str] = {
-    MessageRole.USER: "Пользователь",
-    MessageRole.ASSISTANT: "Агент",
-}
-
-
 class TicketSort(StrEnum):
     """Порядок выдачи списка обращений."""
 

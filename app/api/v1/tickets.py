@@ -8,10 +8,8 @@ from app.core.enums import SupportLine, TicketSort, TicketStatus
 from app.schemas.ticket import (
     FeedbackCreate,
     FeedbackRead,
-    MessageRead,
     Page,
     TicketClose,
-    TicketComplete,
     TicketCreate,
     TicketDetail,
     TicketEscalate,
@@ -111,36 +109,6 @@ async def close_ticket(
     """
     ticket = await service.close(ticket_id, payload)
     return TicketRead.model_validate(ticket)
-
-
-@router.post(
-    "/{ticket_id}/complete",
-    response_model=TicketRead,
-    summary="Завершить обращение: закрытие + оценка + саммари + сообщения",
-)
-async def complete_ticket(
-    ticket_id: uuid.UUID, payload: TicketComplete, service: TicketServiceDep
-) -> TicketRead:
-    """Один запрос на всё завершение обращения.
-
-    Закрывает обращение и сохраняет присланные с фронта данные: оценку (если
-    есть), саммари и все сообщения диалога (таблица `ticket_messages`, чтение —
-    `GET /tickets/{id}/messages`). Отдельные `close` + `feedback` не нужны, но
-    продолжают работать. Идемпотентен для уже закрытого обращения.
-    """
-    ticket = await service.complete(ticket_id, payload)
-    return TicketRead.model_validate(ticket)
-
-
-@router.get(
-    "/{ticket_id}/messages",
-    response_model=list[MessageRead],
-    summary="Сообщения диалога обращения",
-)
-async def list_messages(ticket_id: uuid.UUID, service: TicketServiceDep) -> list[MessageRead]:
-    """Реплики в порядке следования. Пусто, если обращение завершали без сообщений."""
-    messages = await service.list_messages(ticket_id)
-    return [MessageRead.model_validate(message) for message in messages]
 
 
 @router.post(
